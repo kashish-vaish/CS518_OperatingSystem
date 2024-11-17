@@ -142,6 +142,79 @@ int map_page(void *va){
 
 }
 
+/* Helper function to find next available virtual page */
+static void* find_next_virt_page() {
+    for (size_t i = 0; i < TOTAL_VIRTUAL_PAGES; i++) {
+        if (!GET_BIT(virtual_bitmap, i)) {
+            SET_BIT(virtual_bitmap, i);
+            return (void*)(i * PAGE_SIZE);
+        }
+    }
+    return NULL;
+}
+
+/* Helper function to find multiple contiguous virtual pages
+   Returns starting virtual address if found, NULL otherwise */
+static void* find_contiguous_virt_pages(int num_pages) {
+    size_t count = 0;
+    size_t start_page = 0;
+    
+    for (size_t i = 0; i < TOTAL_VIRTUAL_PAGES; i++) {
+        if (!GET_BIT(virtual_bitmap, i)) {
+            if (count == 0) start_page = i;
+            count++;
+            if (count == num_pages) {
+                // Mark all pages as used
+                for (size_t j = start_page; j < start_page + num_pages; j++) {
+                    SET_BIT(virtual_bitmap, j);
+                }
+                return (void*)(start_page * PAGE_SIZE);
+            }
+        } else {
+            count = 0;
+        }
+    }
+    return NULL;
+}
+
+void *n_malloc(size_t num_bytes) {
+    // Calculate number of pages needed
+    size_t num_pages = (num_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
+    
+    if (num_pages == 0) {
+        printf("Error: Invalid size requested\n");
+        return NULL;
+    }
+
+    printf("Allocating %zu bytes (%zu pages)\n", num_bytes, num_pages);
+
+    // Try to find contiguous virtual pages
+    void *start_va = find_contiguous_virt_pages(num_pages);
+    if (!start_va) {
+        printf("Error: Could not find enough contiguous virtual pages\n");
+        return NULL;
+    }
+
+    // Map each page
+    for (size_t i = 0; i < num_pages; i++) {
+        void *current_va = (void*)((char*)start_va + (i * PAGE_SIZE));
+        if (map_page(current_va) != 0) {
+            // If mapping fails, need to cleanup previously mapped pages
+            printf("Error: Page mapping failed, cleaning up...\n");
+            
+            // Cleanup: unmap previous pages and clear virtual bitmap
+            for (size_t j = 0; j < i; j++) {
+                size_t page_num = ((uint32_t)start_va / PAGE_SIZE) + j;
+                CLEAR_BIT(virtual_bitmap, page_num);
+            }
+            return NULL;
+        }
+    }
+
+    return start_va;
+}
+
+
 void cleanup_physical_mem(){
     if (physical_memory!=NULL){
         free(physical_memory);
