@@ -2,6 +2,7 @@
 #define MY_VM_H
 
 #include <stdint.h>
+#include <stdlib.h>
 
 #define MAX_MEMSIZE (4ULL * 1024 * 1024 * 1024)
 #define MEMSIZE (1024 * 1024 * 1024)
@@ -56,6 +57,7 @@ void cleanup_physical_mem();
 void* get_next_avail_page();
 pte_t* get_page_table_entry(void* va);
 void* translate (pde_t *pgdir, void *va);
+void *n_malloc(size_t num_bytes);
 
 int map_page(void *va);
 
