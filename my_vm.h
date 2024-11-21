@@ -1,17 +1,36 @@
-#ifndef MY_VM_H
-#define MY_VM_H
-
-#include <stdint.h>
+#ifndef MY_VM_H_INCLUDED
+#define MY_VM_H_INCLUDED
+#include <stdbool.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <pthread.h>
 
-#define MAX_MEMSIZE (4ULL * 1024 * 1024 * 1024)
-#define MEMSIZE (1024 * 1024 * 1024)
-#define PAGE_SIZE 4096
+//Assume the address space is 32 bits, so the max memory size is 4GB
+//Page size is 4KB
 
+#define PGSIZE 4096
+
+// Maximum size of virtual memory
+#define MAX_MEMSIZE 4ULL*1024*1024*1024
+
+// Size of "physical memory"
+#define MEMSIZE 1024*1024*1024
+
+// Page table and directory entry definitions
+typedef unsigned long pte_t;
+typedef unsigned long pde_t;
+
+// Bit manipulation macros
+#define SET_BIT(bitmap, index) (bitmap[(index)/8] |= (1 << ((index)%8)))
+#define CLEAR_BIT(bitmap, index) (bitmap[(index)/8] &= ~(1 << ((index)%8)))
+#define GET_BIT(bitmap, index) ((bitmap[(index)/8] >> ((index)%8)) & 1)
+
+// Page table constants
 #define OFFSET_BITS 12
 #define PAGE_TABLE_BITS 10
 #define PAGE_DIR_BITS 10
 
+#define PAGE_SIZE PGSIZE
 #define PAGE_TABLE_ENTRIES (1 << PAGE_TABLE_BITS)
 #define OFFSET_MASK ((1 << OFFSET_BITS) - 1)
 #define PAGE_TABLE_MASK ((1 << PAGE_TABLE_BITS) - 1)
@@ -19,51 +38,47 @@
 #define TOTAL_VIRTUAL_PAGES (MAX_MEMSIZE/PAGE_SIZE)
 #define TOTAL_PHYSICAL_PAGES (MEMSIZE/PAGE_SIZE)
 
+// TLB configuration
+#define TLB_ENTRIES 512
+
+struct tlb {
+    unsigned long *vpn;     
+    unsigned long *ppn;     
+    unsigned char *valid;   
+};
+extern struct tlb tlb_store;  
+
+// Global variables
 extern void *physical_memory;
 extern unsigned char *physical_bitmap;
 extern unsigned char *virtual_bitmap;
-
-
-#define SET_BIT(bitmap, index) (bitmap[(index)/8] |= (1 << ((index)%8)))
-#define CLEAR_BIT(bitmap, index) (bitmap[(index)/8] &= ~(1 << ((index)%8)))
-#define GET_BIT(bitmap, index) ((bitmap[(index)/8] >> ((index)%8)) & 1)
-
-// Page Table Entry structure
-typedef struct {
-    uint32_t physical_page_number : 20;  
-    uint32_t present : 1;                
-    uint32_t read_write : 1;            
-    uint32_t user_supervisor : 1;      
-    uint32_t accessed : 1;             
-    uint32_t dirty : 1;                
-    uint32_t unused : 7;               
-} pte_t;
-
-// Page directory entry structure
-typedef struct {
-    uint32_t page_table_addr : 20;      
-    uint32_t present : 1;               
-    uint32_t read_write : 1;            
-    uint32_t user_supervisor : 1;       
-    uint32_t accessed : 1;              
-    uint32_t unused : 8;                
-} pde_t;
-
-
 extern pde_t *page_directory;
+extern pthread_mutex_t tlb_mutex;
 
+// Core functions
 void set_physical_mem();
-void cleanup_physical_mem();
-void* get_next_avail_page();
-pte_t* get_page_table_entry(void* va);
-void* translate (pde_t *pgdir, void *va);
-void *n_malloc(size_t num_bytes);
+pte_t* translate(pde_t *pgdir, void *va);
+int map_page(pde_t *pgdir, void *va, void* pa);
+void *get_next_avail(int num_pages);
 
-int map_page(void *va);
+// Memory management functions
+void *n_malloc(unsigned int num_bytes);
+void n_free(void *va, int size);
 
+// Data operations
+int put_data(void *va, void *val, int size);
+void get_data(void *va, void *val, int size);
+void mat_mult(void *mat1, void *mat2, int size, void *answer);
 
-#define GET_PAGE_DIR_INDEX(va) ((uint32_t)va >> (PAGE_TABLE_BITS + OFFSET_BITS))
-#define GET_PAGE_TABLE_INDEX(va) (((uint32_t)va >> OFFSET_BITS) & PAGE_TABLE_MASK)
-#define GET_OFFSET(va) ((uint32_t)va & OFFSET_MASK)
+// TLB functions
+int TLB_add(void *va, void *pa);
+pte_t *TLB_check(void *va);
+void print_TLB_missrate();
 
-#endif 
+// Helper macros
+#define GET_PAGE_DIR_INDEX(va) ((unsigned long)va >> (PAGE_TABLE_BITS + OFFSET_BITS))
+#define GET_PAGE_TABLE_INDEX(va) (((unsigned long)va >> OFFSET_BITS) & PAGE_TABLE_MASK)
+#define GET_OFFSET(va) ((unsigned long)va & OFFSET_MASK)
+#define GET_VPN(va) ((unsigned long)va >> OFFSET_BITS)
+
+#endif
