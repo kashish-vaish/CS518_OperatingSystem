@@ -10,9 +10,11 @@ pde_t *page_directory = NULL;
 struct tlb tlb_store; 
 pthread_mutex_t tlb_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t virtual_mem_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t init_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 unsigned long long tlb_hits = 0;
 unsigned long long tlb_misses = 0;
+int memory_initialized = 0;
 
 void cleanup_physical_mem() {
     if (physical_memory) {
@@ -36,9 +38,17 @@ void cleanup_physical_mem() {
 }
 
 void set_physical_mem() {
+    pthread_mutex_lock(&init_mutex);
+
+    if (memory_initialized) {
+        pthread_mutex_unlock(&init_mutex);
+        return;
+    }
+
     physical_memory = malloc(MEMSIZE);
     if (!physical_memory) {
         perror("Physical memory allocation failed");
+        pthread_mutex_unlock(&init_mutex);
         exit(1);
     }
     memset(physical_memory, 0, MEMSIZE);
@@ -52,6 +62,7 @@ void set_physical_mem() {
     if (!physical_bitmap || !virtual_bitmap) {
         perror("Bitmap allocation failed");
         free(physical_memory);
+        pthread_mutex_unlock(&init_mutex);
         exit(1);
     }
 
@@ -71,8 +82,12 @@ void set_physical_mem() {
     if (!tlb_store.vpn || !tlb_store.ppn || !tlb_store.valid) {
         perror("TLB allocation failed");
         cleanup_physical_mem();
+        pthread_mutex_unlock(&init_mutex);
         exit(1);
     }
+
+    memory_initialized = 1;
+    pthread_mutex_unlock(&init_mutex);
 }
 
 int TLB_add(void *va, void *pa) {
@@ -112,6 +127,8 @@ void print_TLB_missrate() {
     pthread_mutex_lock(&tlb_mutex);
     double total = tlb_hits + tlb_misses;
     double miss_rate = total > 0 ? (tlb_misses / total) * 100.0 : 0.0;
+    fprintf(stderr, "Number of Misses: %lld\n",tlb_misses);
+    fprintf(stderr, "Number of Hits: %lld\n",tlb_hits);
     fprintf(stderr, "TLB miss rate %lf\n", miss_rate);
     pthread_mutex_unlock(&tlb_mutex);
 }
@@ -190,7 +207,10 @@ void *get_next_avail(int num_pages) {
 }
 
 void *n_malloc(unsigned int num_bytes) {
-    if (!physical_memory) set_physical_mem();
+    if (!memory_initialized) {
+        set_physical_mem();
+    }
+    if (num_bytes == 0) return NULL;
     
     unsigned int num_pages = (num_bytes + PAGE_SIZE - 1) / PAGE_SIZE;
     void *va = NULL;
@@ -202,6 +222,7 @@ void *n_malloc(unsigned int num_bytes) {
             for (int j = 1; j < num_pages && (i + j) < TOTAL_VIRTUAL_PAGES; j++) {
                 if (GET_BIT(virtual_bitmap, i + j)) {
                     found = 0;
+                    i+=j;
                     break;
                 }
             }

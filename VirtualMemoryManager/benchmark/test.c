@@ -68,6 +68,6 @@ int main() {
         printf("free function works\n");
     else
         printf("free function does not work\n");
-
+    print_TLB_missrate();
     return 0;
 }
