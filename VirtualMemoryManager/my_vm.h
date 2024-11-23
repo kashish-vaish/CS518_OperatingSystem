@@ -54,6 +54,7 @@ extern unsigned char *physical_bitmap;
 extern unsigned char *virtual_bitmap;
 extern pde_t *page_directory;
 extern pthread_mutex_t tlb_mutex;
+extern pthread_mutex_t init_mutex;
 
 // Core functions
 void set_physical_mem();
